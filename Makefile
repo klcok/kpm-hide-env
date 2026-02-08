@@ -14,7 +14,7 @@ INCLUDE_DIRS := . include patch/include linux/include linux/arch/arm64/include l
 
 INCLUDE_FLAGS := $(foreach dir,$(INCLUDE_DIRS),-I$(KP_DIR)/kernel/$(dir))
 
-CFLAGS += -Wall -Wno-unused-variable -O2
+CFLAGS += -Wall -Wno-unused-variable -O2 -fno-stack-protector -fno-builtin
 
 objs := hide_env.o
 

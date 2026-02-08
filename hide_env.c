@@ -19,6 +19,27 @@
 #include <asm/current.h>
 #include <uapi/asm-generic/unistd.h>
 
+/* Provide memset/memmove if not available */
+static inline void *kp_memset(void *s, int c, unsigned long n)
+{
+    char *p = s;
+    while (n--) *p++ = (char)c;
+    return s;
+}
+
+static inline void *kp_memmove(void *dest, const void *src, unsigned long n)
+{
+    char *d = dest;
+    const char *s = src;
+    if (d < s) {
+        while (n--) *d++ = *s++;
+    } else {
+        d += n; s += n;
+        while (n--) *--d = *--s;
+    }
+    return dest;
+}
+
 KPM_NAME("kpm-hide-env");
 KPM_VERSION("1.0.0");
 KPM_LICENSE("GPL v2");
@@ -353,7 +374,7 @@ static void after_getdents64(hook_fargs4_t *args, void *udata)
         if (!dentry_is_hidden(d_name)) {
             /* Keep this entry - move forward if gap exists */
             if (new_len != pos) {
-                memmove(kbuf + new_len, kbuf + pos, d_reclen);
+                kp_memmove(kbuf + new_len, kbuf + pos, d_reclen);
             }
             new_len += d_reclen;
         }
@@ -455,6 +476,18 @@ out:
     return ret;
 }
 
+/* Simple string copy for response messages */
+static int copy_str(char *dst, const char *src, int max)
+{
+    int i = 0;
+    while (i < max - 1 && src[i]) {
+        dst[i] = src[i];
+        i++;
+    }
+    dst[i] = '\0';
+    return i;
+}
+
 /*
  * CTL0 interface - control the module from userspace via APatch Manager.
  *
@@ -464,43 +497,44 @@ out:
  *   "status"          - Report status to out_msg
  *   "add:<path>"      - Add a path to dynamic blacklist
  *   "del:<path>"      - Remove a path from dynamic blacklist
- *   "list"            - List dynamic paths to out_msg
  */
 static long hide_env_control0(const char *args, char *__user out_msg, int outlen)
 {
-    char msg[1024] = {0};
-    int i;
+    char msg[256];
+    int i, j;
+
+    kp_memset(msg, 0, sizeof(msg));
 
     if (!args) {
-        snprintf(msg, sizeof(msg), "error: no command specified");
+        copy_str(msg, "error: no args", sizeof(msg));
         goto send;
     }
 
-    logki("control0 command: %s\n", args);
+    logki("ctl0: %s\n", args);
 
     if (!strcmp(args, "enable")) {
         hide_enabled = 1;
-        snprintf(msg, sizeof(msg), "hiding enabled");
+        copy_str(msg, "enabled", sizeof(msg));
 
     } else if (!strcmp(args, "disable")) {
         hide_enabled = 0;
-        snprintf(msg, sizeof(msg), "hiding disabled");
+        copy_str(msg, "disabled", sizeof(msg));
 
     } else if (!strcmp(args, "status")) {
-        snprintf(msg, sizeof(msg), "hide_env v1.0.0 | enabled=%d | dynamic_paths=%d",
-                 hide_enabled, dynamic_path_count);
+        /* Simple status without snprintf */
+        copy_str(msg, hide_enabled ? "enabled" : "disabled", sizeof(msg));
 
     } else if (!strncmp(args, "add:", 4)) {
         const char *path = args + 4;
         if (dynamic_path_count >= MAX_HIDE_PATHS) {
-            snprintf(msg, sizeof(msg), "error: blacklist full (%d max)", MAX_HIDE_PATHS);
+            copy_str(msg, "error: full", sizeof(msg));
         } else if (strlen(path) >= PATH_BUF_LEN) {
-            snprintf(msg, sizeof(msg), "error: path too long");
+            copy_str(msg, "error: too long", sizeof(msg));
         } else {
             strncpy(dynamic_paths[dynamic_path_count], path, PATH_BUF_LEN - 1);
             dynamic_paths[dynamic_path_count][PATH_BUF_LEN - 1] = '\0';
             dynamic_path_count++;
-            snprintf(msg, sizeof(msg), "added: %s (total: %d)", path, dynamic_path_count);
+            copy_str(msg, "added", sizeof(msg));
         }
 
     } else if (!strncmp(args, "del:", 4)) {
@@ -508,9 +542,8 @@ static long hide_env_control0(const char *args, char *__user out_msg, int outlen
         int found = 0;
         for (i = 0; i < dynamic_path_count; i++) {
             if (!strcmp(dynamic_paths[i], path)) {
-                /* Shift remaining entries */
-                for (int j = i; j < dynamic_path_count - 1; j++) {
-                    memcpy(dynamic_paths[j], dynamic_paths[j + 1], PATH_BUF_LEN);
+                for (j = i; j < dynamic_path_count - 1; j++) {
+                    strncpy(dynamic_paths[j], dynamic_paths[j + 1], PATH_BUF_LEN);
                 }
                 dynamic_paths[dynamic_path_count - 1][0] = '\0';
                 dynamic_path_count--;
@@ -518,29 +551,16 @@ static long hide_env_control0(const char *args, char *__user out_msg, int outlen
                 break;
             }
         }
-        if (found) {
-            snprintf(msg, sizeof(msg), "removed: %s (remaining: %d)", path, dynamic_path_count);
-        } else {
-            snprintf(msg, sizeof(msg), "not found: %s", path);
-        }
-
-    } else if (!strcmp(args, "list")) {
-        int off = 0;
-        off += snprintf(msg + off, sizeof(msg) - off, "dynamic paths (%d):\n", dynamic_path_count);
-        for (i = 0; i < dynamic_path_count && off < (int)sizeof(msg) - PATH_BUF_LEN; i++) {
-            off += snprintf(msg + off, sizeof(msg) - off, "  %s\n", dynamic_paths[i]);
-        }
+        copy_str(msg, found ? "removed" : "not found", sizeof(msg));
 
     } else {
-        snprintf(msg, sizeof(msg),
-                 "unknown command: %s\n"
-                 "usage: enable|disable|status|add:<path>|del:<path>|list",
-                 args);
+        copy_str(msg, "unknown cmd", sizeof(msg));
     }
 
 send:
     if (out_msg && outlen > 0) {
-        compat_copy_to_user(out_msg, msg, sizeof(msg) < outlen ? sizeof(msg) : outlen);
+        int len = sizeof(msg) < outlen ? sizeof(msg) : outlen;
+        compat_copy_to_user(out_msg, msg, len);
     }
     return 0;
 }
