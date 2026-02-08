@@ -1,0 +1,42 @@
+name: Build KPM
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install AArch64 cross-compiler
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu
+
+    - name: Clone KernelPatch source
+      run: |
+        git clone --depth=1 https://github.com/bmax121/KernelPatch.git ../KernelPatch
+
+    - name: Build KPM module
+      run: |
+        make TARGET_COMPILE=aarch64-linux-gnu- KP_DIR=../KernelPatch
+
+    - name: Verify output
+      run: |
+        ls -la hide_env.kpm
+        file hide_env.kpm
+        aarch64-linux-gnu-readelf -h hide_env.kpm
+
+    - name: Upload KPM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: hide_env-kpm
+        path: hide_env.kpm
+        if-no-files-found: error
