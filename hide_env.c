@@ -13,7 +13,7 @@
 #include <hook.h>
 
 KPM_NAME("kpm-hide-env");
-KPM_VERSION("1.0.5");
+KPM_VERSION("1.0.6");
 KPM_LICENSE("GPL v2");
 KPM_AUTHOR("hide_env");
 KPM_DESCRIPTION("Hide root environment via syscall hooks");
