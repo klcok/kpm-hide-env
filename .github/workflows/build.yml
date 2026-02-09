@@ -15,10 +15,11 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install AArch64 cross-compiler
+    - name: Install bare-metal AArch64 toolchain
       run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-aarch64-linux-gnu
+        curl -Lo arm-gnu-toolchain.tar.xz https://armkeil.blob.core.windows.net/developer/Files/downloads/gnu/12.2.rel1/binrel/arm-gnu-toolchain-12.2.rel1-x86_64-aarch64-none-elf.tar.xz
+        tar -Jxf arm-gnu-toolchain.tar.xz
+        echo "$(pwd)/arm-gnu-toolchain-12.2.rel1-x86_64-aarch64-none-elf/bin" >> $GITHUB_PATH
 
     - name: Clone KernelPatch source
       run: |
@@ -26,13 +27,16 @@ jobs:
 
     - name: Build KPM module
       run: |
-        make TARGET_COMPILE=aarch64-linux-gnu- KP_DIR=../KernelPatch
+        export TARGET_COMPILE=$(pwd)/arm-gnu-toolchain-12.2.rel1-x86_64-aarch64-none-elf/bin/aarch64-none-elf-
+        make TARGET_COMPILE=$TARGET_COMPILE KP_DIR=../KernelPatch
 
     - name: Verify output
       run: |
         ls -la hide_env.kpm
         file hide_env.kpm
-        aarch64-linux-gnu-readelf -h hide_env.kpm
+        $(pwd)/arm-gnu-toolchain-12.2.rel1-x86_64-aarch64-none-elf/bin/aarch64-none-elf-readelf -h hide_env.kpm
+        echo "=== Relocations ==="
+        $(pwd)/arm-gnu-toolchain-12.2.rel1-x86_64-aarch64-none-elf/bin/aarch64-none-elf-readelf -r hide_env.kpm || true
 
     - name: Upload KPM artifact
       uses: actions/upload-artifact@v4

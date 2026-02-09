@@ -1,5 +1,5 @@
 ifndef TARGET_COMPILE
-    $(error TARGET_COMPILE not set. Example: make TARGET_COMPILE=aarch64-linux-gnu-)
+    $(error TARGET_COMPILE not set)
 endif
 
 ifndef KP_DIR
@@ -8,13 +8,10 @@ endif
 
 CC = $(TARGET_COMPILE)gcc
 LD = $(TARGET_COMPILE)ld
-STRIP = $(TARGET_COMPILE)strip
 
 INCLUDE_DIRS := . include patch/include linux/include linux/arch/arm64/include linux/tools/arch/arm64/include
 
 INCLUDE_FLAGS := $(foreach dir,$(INCLUDE_DIRS),-I$(KP_DIR)/kernel/$(dir))
-
-CFLAGS += -Wall -Wno-unused-variable -O2 -fno-stack-protector -ffreestanding -fno-pic -fno-PIE -fno-plt -fno-common -mno-outline-atomics
 
 objs := hide_env.o
 
@@ -24,7 +21,7 @@ hide_env.kpm: $(objs)
 	$(CC) -r -o $@ $^
 
 %.o: %.c
-	$(CC) $(CFLAGS) $(INCLUDE_FLAGS) -Thide_env.lds -c -o $@ $<
+	$(CC) $(CFLAGS) $(INCLUDE_FLAGS) -c -O2 -o $@ $<
 
 .PHONY: clean
 clean:
